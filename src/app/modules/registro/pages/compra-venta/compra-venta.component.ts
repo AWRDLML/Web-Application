@@ -1,6 +1,14 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule, FormBuilder, FormGroup, FormArray, Validators } from '@angular/forms';
+import {
+  FormsModule,
+  ReactiveFormsModule,
+  FormBuilder,
+  FormGroup,
+  FormArray,
+  Validators,
+  ValidatorFn, AbstractControl, ValidationErrors
+} from '@angular/forms';
 import {Venta} from "../../entities/venta.interface";
 import {Plato} from "../../../platos/entities/plato.interface";
 import {Compra} from "../../entities/compra.interface";
@@ -10,6 +18,21 @@ import {PlatosService} from "../../../platos/services/platos.service";
 import {AuthService} from "../../../auth/services/auth.service";
 
 
+
+export function insumoEnListaValidator(listaValida: string[]): ValidatorFn {
+  return (control: AbstractControl): ValidationErrors | null => {
+
+    const valorActual = control.value;
+
+    if (!valorActual || listaValida.length === 0) {
+      return null;
+    }
+    const esValido = listaValida.includes(valorActual);
+
+    return esValido ? null : { insumoNoEnLista: true };
+  };
+}
+
 @Component({
   selector: 'app-compra-venta',
   standalone: true,
@@ -17,6 +40,7 @@ import {AuthService} from "../../../auth/services/auth.service";
   templateUrl: './compra-venta.component.html',
   styleUrl: './compra-venta.component.css'
 })
+
 export class CompraVentaComponent implements OnInit {
   // Variables para Ventas
   fechaSeleccionadaVentas: string = '';
@@ -28,6 +52,9 @@ export class CompraVentaComponent implements OnInit {
   ventaActual: Partial<Venta> = {};
 
   // Variables para Compras
+  nombresInsumosDisponibles: string[] = [];
+  filteredInsumos: string[] = [];
+  activeInsumoIndex: number | null = null;
   mesSeleccionado: number;
   anioSeleccionado: number;
   comprasDelMes: Compra[] = [];
@@ -35,6 +62,8 @@ export class CompraVentaComponent implements OnInit {
   mostrarFormularioCompra: boolean = false;
   editandoCompra: boolean = false;
   unidades = ['kg', 'g', 'unid'];
+
+
   opcionesCantidad = [
     { valor: 0.125, texto: '1/8' },
     { valor: 0.25, texto: '1/4' },
@@ -89,7 +118,12 @@ export class CompraVentaComponent implements OnInit {
       next: (platos) => {
         this.platos = platos;
         this.actualizarPlatosDisponibles();
+        const todosLosInsumos = platos.flatMap(plato => plato.insumos.map(insumo => insumo.nombre));
+        this.nombresInsumosDisponibles = [...new Set(todosLosInsumos)].sort();
+
+        this.actualizarValidadoresDeInsumos();
       },
+
       error: (error) => {
         console.error('Error al cargar platos:', error);
         this.mensajeVentas = 'Error al cargar los platos disponibles';
@@ -420,7 +454,13 @@ export class CompraVentaComponent implements OnInit {
     const pesoAproxEnGramos = insumo?.pesoAprox ? insumo.pesoAprox * 1000 : '';
 
     return this.fb.group({
-      nombre: [insumo?.nombre || '', Validators.required],
+      nombre: [
+        insumo?.nombre || '',
+        [
+          Validators.required,
+          insumoEnListaValidator(this.nombresInsumosDisponibles)
+        ]
+      ],
       cantidad: [insumo?.cantidad || '', [Validators.required, Validators.min(0.001)]],
       unidad: [insumo?.unidad || 'kg', Validators.required],
       costoTotal: [insumo?.costoTotal || '', [Validators.required, Validators.min(0.01)]],
@@ -533,6 +573,7 @@ export class CompraVentaComponent implements OnInit {
   }
 
 
+
   onUnidadChangeCompra(index: number): void {
     const insumoControl = this.insumosFormArray.at(index) as FormGroup;
     const unidad = insumoControl.get('unidad')?.value;
@@ -617,6 +658,46 @@ export class CompraVentaComponent implements OnInit {
       default:
         return `${pesoTotalKg} kg`;
     }
+  }
+
+
+  onInsumoNameChange(event: Event, index: number): void {
+    const searchTerm = (event.target as HTMLInputElement).value.toLowerCase();
+    this.filteredInsumos = searchTerm
+        ? this.nombresInsumosDisponibles.filter(insumo => insumo.toLowerCase().includes(searchTerm))
+        : [...this.nombresInsumosDisponibles];
+  }
+
+  selectInsumo(insumoName: string, index: number): void {
+    this.insumosFormArray.at(index).get('nombre')?.setValue(insumoName);
+    this.activeInsumoIndex = null;
+  }
+
+  onInsumoFocus(index: number): void {
+    this.activeInsumoIndex = index;
+    this.filteredInsumos = [...this.nombresInsumosDisponibles];
+  }
+
+  onInsumoBlur(index: number): void {
+    setTimeout(() => {
+      if (this.activeInsumoIndex === index) {
+        this.activeInsumoIndex = null;
+      }
+    }, 150);
+  }
+
+  actualizarValidadoresDeInsumos(): void {
+    if (!this.compraForm || !this.compraForm.get('insumos')) return;
+
+    const insumosArray = this.compraForm.get('insumos') as FormArray;
+    insumosArray.controls.forEach(control => {
+      const nombreControl = control.get('nombre');
+      nombreControl?.setValidators([
+        Validators.required,
+        insumoEnListaValidator(this.nombresInsumosDisponibles)
+      ]);
+      nombreControl?.updateValueAndValidity({ emitEvent: false });
+    });
   }
 
   // Para verificar en consola si se manejan los datos correctamente

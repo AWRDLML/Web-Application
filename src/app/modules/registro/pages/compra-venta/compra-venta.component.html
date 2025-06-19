@@ -255,7 +255,8 @@
                                     </div>
 
                                     <div class="campos-insumo">
-                                        <div class="campo">
+
+                                        <div class="campo autocomplete-container">
                                             <label>Nombre del insumo:</label>
 
                                             <input
@@ -263,7 +264,26 @@
                                                     formControlName="nombre"
                                                     required
                                                     class="input-texto"
-                                                    placeholder="Ej: Papa amarilla">
+                                                    placeholder="Escribe o selecciona un insumo"
+                                                    (input)="onInsumoNameChange($event, i)"
+                                                    (focus)="onInsumoFocus(i)"
+                                                    (blur)="onInsumoBlur(i)"
+                                                    autocomplete="off">
+
+                                            <div
+                                                    *ngIf="insumoControl.get('nombre')?.hasError('insumoNoEnLista') && insumoControl.get('nombre')?.touched"
+                                                    class="error-mensaje">
+                                                Por favor, selecciona un insumo válido de la lista.
+                                            </div>
+
+                                            <ul class="suggestions-list" *ngIf="activeInsumoIndex === i && filteredInsumos.length > 0">
+                                                <li
+                                                        *ngFor="let insumo of filteredInsumos"
+                                                        class="suggestion-item"
+                                                        (mousedown)="selectInsumo(insumo, i)">
+                                                    {{ insumo }}
+                                                </li>
+                                            </ul>
                                         </div>
 
                                         <div class="campo">
@@ -314,6 +334,8 @@
                                                     class="input-numero"
                                                     placeholder="0.00">
                                         </div>
+
+
                                     </div>
                                 </div>
                             </div>
