@@ -43,7 +43,7 @@ export class RecoverComponent {
   }
 
 
-  // Manejar envío del formulario
+
   onSubmit(): void {
     if (this.recoverForm.invalid) {
       this.recoverForm.markAllAsTouched();
@@ -59,12 +59,10 @@ export class RecoverComponent {
     this.recoverySubscription = this.authService.emailExists(emailValue).subscribe({
       next: (exists) => {
         if (exists) {
-          // Si el email existe, simulamos el envío exitoso
           this.emailSent = true;
           this.successMessage = `Se ha enviado un enlace de recuperación a ${emailValue}. Revisa tu bandeja de entrada y spam.`;
           this.startResendTimer();
         } else {
-          // Si el email no existe, mostramos un error
           this.errorMessage = 'No encontramos una cuenta asociada a este correo electrónico.';
         }
         this.isLoading = false;
@@ -77,7 +75,6 @@ export class RecoverComponent {
   }
 
 
-  // Iniciar timer para reenvío
   startResendTimer(): void {
     this.resendTimer = 60;
     this.resendInterval = setInterval(() => {
@@ -88,7 +85,6 @@ export class RecoverComponent {
     }, 1000);
   }
 
-  // Reenviar email
   resendEmail(): void {
     if (this.resendTimer > 0) return;
 
@@ -102,7 +98,6 @@ export class RecoverComponent {
     }, 1500);
   }
 
-  // Volver al formulario inicial
   resetForm(): void {
     this.recoverForm.reset();
     this.emailSent = false;
@@ -114,17 +109,14 @@ export class RecoverComponent {
     }
   }
 
-  // Navegar a login
   goToLogin(): void {
     this.router.navigate(['/login']);
   }
 
-  // Navegar a registro
   goToRegister(): void {
     this.router.navigate(['/register']);
   }
 
-  // Limpiar interval al destruir componente
   ngOnDestroy(): void {
     if (this.resendInterval) {
       clearInterval(this.resendInterval);

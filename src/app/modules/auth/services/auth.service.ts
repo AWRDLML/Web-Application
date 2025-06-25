@@ -1,14 +1,19 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, BehaviorSubject, of, throwError } from 'rxjs';
-import { map, catchError, switchMap, tap } from 'rxjs/operators';
+import { Observable, BehaviorSubject, throwError } from 'rxjs';
+import { catchError, tap } from 'rxjs/operators';
+import {jwtDecode} from "jwt-decode";
+import {config} from "../../../config/config";
 
-export interface Usuario {
+
+export interface CurrentUser {
     id: string;
     restaurantName: string;
     email: string;
-    password: string;
-    createdAt: string;
+}
+
+export interface AuthResponse {
+    token: string;
 }
 
 export interface LoginRequest {
@@ -26,108 +31,86 @@ export interface RegisterRequest {
     providedIn: 'root'
 })
 export class AuthService {
-    private apiUrl = 'http://localhost:3000/usuarios';
-    private currentUserSubject = new BehaviorSubject<Usuario | null>(null);
+
+    private currentUserSubject = new BehaviorSubject<CurrentUser | null>(null);
     public currentUser$ = this.currentUserSubject.asObservable();
 
     constructor(private http: HttpClient) {
-        this.loadCurrentUser();
+        this.loadCurrentUserFromToken();
     }
 
-    // Cargar usuario actual del localStorage
-    private loadCurrentUser(): void {
-        if (typeof window !== 'undefined' && window.localStorage) {
-            const userData = localStorage.getItem('currentUser');
-            if (userData) {
-                this.currentUserSubject.next(JSON.parse(userData));
+    private loadCurrentUserFromToken(): void {
+        const token = this.getToken();
+        if (token) {
+            try {
+
+                const decodedToken: any = jwtDecode(token);
+                const user: CurrentUser = {
+                    id: decodedToken.id,
+                    email: decodedToken.sub,
+                    restaurantName: decodedToken.restaurantName,
+                };
+
+                const expiry = decodedToken.exp * 1000;
+                if (Date.now() >= expiry) {
+                    this.logout();
+                } else {
+                    this.currentUserSubject.next(user);
+                }
+            } catch (error) {
+                console.error("No se pudo decodificar el token, deslogueando.", error);
+                this.logout();
             }
         }
     }
 
-    // Obtener usuario actual
-    getCurrentUser(): Usuario | null {
-        return this.currentUserSubject.value;
+    getToken(): string | null {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('authToken');
+        }
+        return null;
     }
 
-    // Obtener ID del usuario actual
-    getCurrentUserId(): string | null {
-        const user = this.getCurrentUser();
-        return user ? user.id : localStorage.getItem('userId');
+    private setSession(token: string): void {
+        localStorage.setItem('authToken', token);
+        this.loadCurrentUserFromToken();
     }
 
-    // Verificar si está autenticado
+
     isAuthenticated(): boolean {
-        return this.getCurrentUser() !== null;
+        return this.getToken() !== null;
     }
 
-    // Login
-    login(credentials: LoginRequest): Observable<Usuario | null> {
-        return this.http.get<Usuario[]>(`${this.apiUrl}?email=${credentials.email}&password=${credentials.password}`)
-            .pipe(
-                map(users => {
-                    if (users.length > 0) {
-                        const user = users[0];
-                        this.setCurrentUser(user);
-                        return user;
-                    }
-                    return null;
-                }),
-                catchError(() => of(null))
-            );
+    login(credentials: LoginRequest): Observable<AuthResponse> {
+        return this.http.post<AuthResponse>(`${config.apiUrl}/auth/login`, credentials).pipe(
+            tap(response => this.setSession(response.token)),
+            catchError(this.handleError)
+        );
     }
 
-    // Registro
-    register(userData: RegisterRequest): Observable<Usuario | null> {
-        return this.http.get<Usuario[]>(`${this.apiUrl}?email=${userData.email}`)
-            .pipe(
-                switchMap(existingUsers => {
-                    if (existingUsers.length > 0) {
-                        return of(null);
-                    }
-
-                    const newUser: Omit<Usuario, 'id'> = {
-                        ...userData,
-                        createdAt: new Date().toISOString()
-                    };
-
-                    return this.http.post<Usuario>(this.apiUrl, newUser).pipe(
-                        tap(createdUser => {
-                            this.setCurrentUser(createdUser);
-                        })
-                    );
-                }),
-                catchError(error => {
-                    console.error('Error en el registro:', error);
-                    return of(null);
-                })
-            );
+    register(userData: RegisterRequest): Observable<AuthResponse> {
+        return this.http.post<AuthResponse>(`${config.apiUrl}/auth/register`, userData).pipe(
+            tap(response => this.setSession(response.token)),
+            catchError(this.handleError)
+        );
     }
 
-    // Verificar si email existe
     emailExists(email: string): Observable<boolean> {
-        return this.http.get<Usuario[]>(`${this.apiUrl}?email=${email}`)
-            .pipe(
-                map(users => users.length > 0),
-                catchError(this.handleError)
-            );
+
+        return this.http.get<boolean>(`${config.apiUrl}/usuarios/existe?email=${email}`);
     }
 
-    // Logout
     logout(): void {
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('isLoggedIn');
+        localStorage.removeItem('authToken');
         this.currentUserSubject.next(null);
-    }
 
-    private setCurrentUser(user: Usuario): void {
-        localStorage.setItem('currentUser', JSON.stringify(user));
-        localStorage.setItem('isLoggedIn', 'true');
-        this.currentUserSubject.next(user);
+        // this.router.navigate(['/login']);
     }
 
     // Helper para manejar errores de HTTP
     private handleError(error: any): Observable<never> {
         console.error('Ocurrió un error en la petición:', error);
-        return throwError(() => new Error('Algo salió mal; por favor, inténtalo de nuevo más tarde.'));
+        const errorMessage = error.error?.message || error.message || 'Error desconocido del servidor.';
+        return throwError(() => new Error(errorMessage));
     }
 }

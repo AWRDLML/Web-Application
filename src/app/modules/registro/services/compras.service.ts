@@ -1,52 +1,32 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import {HttpClient, HttpParams} from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { Compra } from "../entities/compra.interface";
-import {AuthService} from "../../auth/services/auth.service";
+import {config} from "../../../config/config";
 
 
 @Injectable({
   providedIn: 'root'
 })
 export class ComprasService {
-  private apiUrl = 'http://localhost:3000/compras';
+  private apiUrl = `${config.apiUrl}/compras`;
 
-  constructor(
-      private http: HttpClient,
-      private authService: AuthService
-  ) {}
+  constructor(private http: HttpClient) {}
 
-  private getCurrentUserId(): string {
-    const userId = this.authService.getCurrentUserId();
-    if (!userId) {
-      throw new Error('Usuario no autenticado');
-    }
-    return userId;
+  getAllCompras(): Observable<Compra[]> {
+
+    return this.http.get<Compra[]>(this.apiUrl);
   }
 
-  getCompras(): Observable<Compra[]> {
-    const usuarioId = this.getCurrentUserId();
-    return this.http.get<Compra[]>(`${this.apiUrl}?usuarioId=${usuarioId}`);
-  }
-
-  getComprasByMes(year: number, month: number): Observable<Compra[]> {
-    const usuarioId = this.getCurrentUserId();
-    return this.http.get<Compra[]>(`${this.apiUrl}?usuarioId=${usuarioId}`);
-  }
-
-  getCompraById(id: string): Observable<Compra> {
-    return this.http.get<Compra>(`${this.apiUrl}/${id}`);
-  }
-
-  getComprasByFecha(fecha: string): Observable<Compra[]> {
-    const usuarioId = this.getCurrentUserId();
-    return this.http.get<Compra[]>(`${this.apiUrl}?usuarioId=${usuarioId}&fecha=${fecha}`);
+  getComprasByMonth(anio: number, mes: number): Observable<Compra[]> {
+    const params = new HttpParams()
+        .set('anio', anio.toString())
+        .set('mes', mes.toString());
+    return this.http.get<Compra[]>(this.apiUrl, { params });
   }
 
   addCompra(compra: Omit<Compra, 'id' | 'usuarioId'>): Observable<Compra> {
-    const usuarioId = this.getCurrentUserId();
-    const compraConUsuario = { ...compra, usuarioId };
-    return this.http.post<Compra>(this.apiUrl, compraConUsuario);
+    return this.http.post<Compra>(this.apiUrl, compra);
   }
 
   updateCompra(compra: Compra): Observable<Compra> {
@@ -55,9 +35,5 @@ export class ComprasService {
 
   deleteCompra(id: string): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/${id}`);
-  }
-
-  eliminarInsumoDeCompra(compraId: string, insumoIndex: number): Observable<Compra> {
-    return this.getCompraById(compraId);
   }
 }
