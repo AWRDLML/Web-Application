@@ -5,13 +5,13 @@ import { Router, RouterModule } from '@angular/router';
 import {AuthService} from "../../services/auth.service";
 
 
-// Función para validación cruzada (las contraseñas deben coincidir)
+// Función para validación, las contraseñas deben coincidir
 export function passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
   const password = control.get('password');
   const confirmPassword = control.get('confirmPassword');
 
   if (!password || !confirmPassword || !password.value || !confirmPassword.value) {
-    return null; // No validar si los campos no existen o están vacíos
+    return null;
   }
 
   if (confirmPassword.errors && confirmPassword.errors['passwordMismatch'] && password.value === confirmPassword.value) {
@@ -119,7 +119,6 @@ export class RegisterComponent {
     return /\d/.test(this.password?.value);
   }
 
-  // Manejar envío del formulario
   onSubmit(): void {
     if (this.registerForm.invalid) {
       this.registerForm.markAllAsTouched();
@@ -130,7 +129,6 @@ export class RegisterComponent {
     this.isLoading = true;
     this.errorMessage = '';
     this.successMessage = '';
-
 
     this.authService.register({
       restaurantName: this.registerForm.value.restaurantName.trim(),
@@ -158,7 +156,6 @@ export class RegisterComponent {
     });
   }
 
-  // Navegar a login
   goToLogin(): void {
     this.router.navigate(['/login']);
   }

@@ -68,7 +68,7 @@ export class ListComponent implements OnInit, OnDestroy {
       nombre: [insumo?.nombre || '', [Validators.required]],
       cantidadPorPorcion: [''],
       cantidadManual: [''],
-      unidad: [insumo?.unidad || 'kg', [Validators.required]],
+      unidad: [insumo ? insumo.unidad.toLowerCase() : 'kg', [Validators.required]],
       pesoAprox: ['']
     });
 
@@ -85,25 +85,30 @@ export class ListComponent implements OnInit, OnDestroy {
   }
 
   private setValoresIniciales(form: FormGroup, insumo: Insumo): void {
-    if (insumo.unidad === 'unid') {
-      const cantidadOriginal = insumo.cantidadPorPorcion / (insumo.pesoAprox || 1);
-      const cantidadOption = this.getCantidadOption(cantidadOriginal);
+    const unidadNormalizada = insumo.unidad.toLowerCase();
+    form.get('unidad')?.setValue(unidadNormalizada);
+
+    if (unidadNormalizada === 'unid') {
+      const cantidadOriginalUnidades = insumo.cantidadPorPorcion / (insumo.pesoAprox || 1);
+      const cantidadOption = this.getCantidadOption(cantidadOriginalUnidades);
 
       form.patchValue({
         cantidadPorPorcion: cantidadOption,
-        cantidadManual: cantidadOption === 'manual' ? cantidadOriginal : '',
-        pesoAprox: (insumo.pesoAprox || 0) * 1000 // Convertir kg a g para mostrar
+        cantidadManual: cantidadOption === 'manual' ? cantidadOriginalUnidades : '',
+        pesoAprox: (insumo.pesoAprox || 0) * 1000
       });
 
       this.setValidatorsBasedOnUnit(form, 'unid');
-    } else if (insumo.unidad === 'g') {
-      const gramosOriginal = insumo.cantidadPorPorcion * 1000;
+
+    } else if (unidadNormalizada === 'g') {
+      const gramosParaMostrar = insumo.cantidadPorPorcion * 1000;
+
       form.patchValue({
         cantidadPorPorcion: 'manual',
-        cantidadManual: gramosOriginal
+        cantidadManual: gramosParaMostrar
       });
-
       this.setValidatorsBasedOnUnit(form, 'g');
+
     } else {
       form.patchValue({
         cantidadPorPorcion: 'manual',
@@ -248,25 +253,18 @@ export class ListComponent implements OnInit, OnDestroy {
   guardar(): void {
     if (this.platoForm.valid && this.insumosFormArray.length > 0) {
       const formValue = this.platoForm.value;
+      const excludeId = this.modoEdicion ? this.platoEditando?.id : undefined;
 
-      this.platosService.existePlatoConNombre(formValue.nombre).subscribe(platosExistentes => {
-        const existe = platosExistentes.length > 0 &&
-            (!this.modoEdicion || platosExistentes[0].id !== this.platoEditando?.id);
+      this.platosService.existePlatoConNombre(formValue.nombre, excludeId).subscribe(existe => {
 
         if (existe) {
           this.mostrarMensajeError('Ya existe un plato con ese nombre.');
           return;
         }
 
-        const usuarioId = this.authService.getCurrentUserId();
-        if (!usuarioId) {
-          this.mostrarMensajeError('No se pudo obtener el usuario actual.');
-          return;
-        }
 
         const platoBase = {
           nombre: formValue.nombre,
-          usuarioId,
           insumos: formValue.insumos.map((insumo: any) => {
             let cantidadReal: number;
 
@@ -299,7 +297,8 @@ export class ListComponent implements OnInit, OnDestroy {
         if (this.modoEdicion && this.platoEditando?.id !== undefined) {
           const platoEditado: Plato = {
             id: this.platoEditando.id,
-            ...platoBase
+            ...platoBase,
+            usuarioId: this.platoEditando.usuarioId
           };
 
           this.platosService.updatePlato(platoEditado).subscribe(() => {
@@ -354,6 +353,7 @@ export class ListComponent implements OnInit, OnDestroy {
     return this.platoForm.valid && this.insumosFormArray.length > 0 &&
         this.insumosFormArray.controls.every(control => control.valid);
   }
+
 
 
   // Metodo auxiliar para mostrar la cantidad en el frontend

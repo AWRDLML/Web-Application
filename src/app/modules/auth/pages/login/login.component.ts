@@ -13,7 +13,6 @@ import {FormBuilder, FormGroup, ReactiveFormsModule, Validators} from '@angular/
 })
 export class LoginComponent {
 
-  // Propiedades del formulario
   loginForm!: FormGroup;
   isLoading: boolean = false;
   errorMessage: string = '';
@@ -33,7 +32,6 @@ export class LoginComponent {
   }
 
 
-  // Manejar envío del formulario
   onSubmit(): void {
     if (this.loginForm.invalid) {
       this.loginForm.markAllAsTouched();
@@ -43,17 +41,17 @@ export class LoginComponent {
     this.isLoading = true;
     this.errorMessage = '';
     this.authService.login(this.loginForm.value).subscribe({
-      next: (user) => {
-        if (user) {
-          this.router.navigate(['/platos']);
-        } else {
-          this.errorMessage = 'Credenciales incorrectas. Intenta nuevamente.';
-        }
+      next: (response) => {
+        this.router.navigate(['/platos']);
         this.isLoading = false;
       },
       error: (error) => {
         console.error('Error en login:', error);
-        this.errorMessage = 'Error al iniciar sesión. Intenta nuevamente.';
+        if (error.status === 401 || error.status === 403) {
+          this.errorMessage = 'Credenciales incorrectas. Intenta nuevamente.';
+        } else {
+          this.errorMessage = 'Error al conectar con el servidor. Intenta nuevamente más tarde.';
+        }
         this.isLoading = false;
       }
     });
@@ -67,12 +65,10 @@ export class LoginComponent {
     return this.loginForm.get('password');
   }
 
-  // Navegar a registro
   goToRegister(): void {
     this.router.navigate(['/register']);
   }
 
-  // Navegar a recuperar contraseña
   goToRecover(): void {
     this.router.navigate(['/reset-password']);
   }

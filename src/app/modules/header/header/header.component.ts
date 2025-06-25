@@ -19,7 +19,6 @@ export class HeaderComponent implements OnInit {
   constructor(private router: Router, private authService: AuthService) {}
 
   ngOnInit() {
-    // Cambios de ruta
     this.router.events
         .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
         .subscribe((event: NavigationEnd) => {
@@ -30,7 +29,6 @@ export class HeaderComponent implements OnInit {
     this.currentRoute = this.router.url;
     this.updateNavigationVisibility();
 
-    // Cambios si el usuario inicia sesión
     this.authService.currentUser$.subscribe(user => {
       this.updateNavigationVisibility();
     });
@@ -38,7 +36,6 @@ export class HeaderComponent implements OnInit {
 
   private updateNavigationVisibility() {
     const authRoutes = ['/login', '/register', '/reset-password'];
-    // Mostrar navegación solo si no estamos en ruta pública Y el usuario está autenticado
     this.showNavigation = !authRoutes.some(route => this.currentRoute.startsWith(route))
         && this.authService.isAuthenticated();
   }

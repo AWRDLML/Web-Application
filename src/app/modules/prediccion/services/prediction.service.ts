@@ -64,8 +64,8 @@ export interface WasteAnalysisData {
 })
 export class PredictionService {
 
-  // En un caso real, esta URL debe apuntar a nuestro backend de Machine Learning (Python/Flask, Node/Express, etc.)
-  private predictionApiUrl = 'http://localhost:5000/predict'; // URL del backend de ML (ejemplo)
+  // En un caso real, esta URL debe apuntar a nuestro backend de Machine Learning
+  private predictionApiUrl = 'http://localhost:5000/predict'; // EJEMPLO de URL del backend de ML
 
   constructor(
       private http: HttpClient,
@@ -77,9 +77,6 @@ export class PredictionService {
   // Verifica si hay al menos 2 meses de datos de ventas
 
   checkDataAvailability(): Observable<boolean> {
-
-      //return of(true);
-
 
      return this.ventasService.getVentas().pipe(
          map(ventas => {
@@ -100,7 +97,7 @@ export class PredictionService {
   getAvailableMonths(): Observable<{name: string, value: string}[]> {
         return forkJoin({
             ventas: this.ventasService.getVentas(),
-            compras: this.comprasService.getCompras()
+            compras: this.comprasService.getAllCompras()
         }).pipe(
             map(({ ventas, compras }) => {
                 const allDates = [
@@ -126,13 +123,13 @@ export class PredictionService {
         return forkJoin({
             platos: this.platosService.getPlatos(),
             ventas: this.ventasService.getVentas(),
-            compras: this.comprasService.getCompras()
+            compras: this.comprasService.getAllCompras()
         }).pipe(
             map(({ platos, ventas, compras }) => {
                 const consumoPorMes: { [key: string]: number } = {};
                 const comprasPorMes: { [key:string]: number } = {};
 
-                // 1. Calcular costos promedio de insumos
+                // Calcular costos promedio de insumos
                 const costosInsumos: { [nombre: string]: { totalCosto: number; totalKg: number } } = {};
                 compras.forEach(compra => {
                     compra.insumos.forEach(insumo => {
@@ -149,7 +146,7 @@ export class PredictionService {
                     costosPromedioKg[nombre] = data.totalKg > 0 ? data.totalCosto / data.totalKg : 0;
                 });
 
-                // 2. Calcular consumo valorizado por mes
+                // Calcular consumo valorizado por mes
                 ventas.forEach(venta => {
                     const mesKey = venta.fecha.substring(0, 7);
                     if (!consumoPorMes[mesKey]) consumoPorMes[mesKey] = 0;
@@ -164,14 +161,14 @@ export class PredictionService {
                     }
                 });
 
-                // 3. Calcular compras por mes
+                //  Calcular compras por mes
                 compras.forEach(compra => {
                     const mesKey = compra.fecha.substring(0, 7);
                     if (!comprasPorMes[mesKey]) comprasPorMes[mesKey] = 0;
                     comprasPorMes[mesKey] += compra.insumos.reduce((total, insumo) => total + insumo.costoTotal, 0);
                 });
 
-                // 4. Formatear para el gráfico (con filtrado)
+                // Formatear para el gráfico (con filtrado)
                 const mesesNombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
                 let allMesesKeys = [...new Set([...Object.keys(consumoPorMes), ...Object.keys(comprasPorMes)])].sort();
 
@@ -209,7 +206,7 @@ export class PredictionService {
     return forkJoin({
       platos: this.platosService.getPlatos(),
       ventas: this.ventasService.getVentas(),
-      compras: this.comprasService.getCompras()
+      compras: this.comprasService.getAllCompras()
     }).pipe(
         switchMap(historicalData => {
           const payload = {
@@ -250,7 +247,7 @@ export class PredictionService {
         return forkJoin({
             platos: this.platosService.getPlatos(),
             ventas: this.ventasService.getVentas(),
-            compras: this.comprasService.getCompras()
+            compras: this.comprasService.getAllCompras()
         }).pipe(
             map(({ platos, ventas, compras }) => {
                 const compradoPorMes: { [key: string]: number } = {};
@@ -345,19 +342,19 @@ export class PredictionService {
         return forkJoin({
             platos: this.platosService.getPlatos(),
             ventas: this.ventasService.getVentas(),
-            compras: this.comprasService.getCompras()
+            compras: this.comprasService.getAllCompras()
         }).pipe(
             map(({ platos, ventas, compras }) => {
                 const stock: { [insumoNombre: string]: number } = {};
 
-                // 1. Sumar todas las compras históricas por insumo
+                //Sumar todas las compras históricas por insumo
                 compras.forEach(compra => {
                     compra.insumos.forEach(insumo => {
                         stock[insumo.nombre] = (stock[insumo.nombre] || 0) + insumo.cantidad;
                     });
                 });
 
-                // 2. Restar el total consumo histórico por insumo
+                //Restar el total consumo histórico por insumo
                 ventas.forEach(venta => {
                     const platoVendido = platos.find(p => p.id === venta.platoId);
                     if (platoVendido) {

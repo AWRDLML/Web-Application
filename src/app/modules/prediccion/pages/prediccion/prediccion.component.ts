@@ -36,7 +36,7 @@ export class PrediccionComponent implements OnInit, OnDestroy {
   @ViewChild(BaseChartDirective) chart!: BaseChartDirective;
   private destroy$ = new Subject<void>();
 
-  // --- Propiedades comunes para el grafico ---
+  // Propiedades comunes para el grafico
   availableMonths: MonthOption[] = [];
   isLoading = true;
   hasSufficientData = false;
@@ -133,7 +133,6 @@ export class PrediccionComponent implements OnInit, OnDestroy {
       { type: 'line', label: '% Desperdicio', data: [], yAxisID: 'y1', borderColor: '#dc3545', pointBackgroundColor: '#dc3545', tension: 0.1, fill: false }
     ]
   };
-
 
 
   constructor(
@@ -241,7 +240,7 @@ export class PrediccionComponent implements OnInit, OnDestroy {
   }
 
 
-  // --- MÉTODOS DE LÓGICA ---
+  // MÉTODOS DE LÓGICA
 
   private listenToManualComparisonChanges(): void {
     this.comparisonMonthControl.valueChanges.pipe(takeUntil(this.destroy$)).subscribe(key => {
@@ -289,10 +288,8 @@ export class PrediccionComponent implements OnInit, OnDestroy {
     this.predictionService.getWasteAnalysisData(startMonth, endMonth)
         .pipe(takeUntil(this.destroy$)).subscribe(waste => {
 
-      // 1. Asignar los KPIs directamente. Esto dispara la detección de cambios para los números.
       this.wasteAnalysisData = waste;
 
-      // 2. Para el gráfico, crear nuevos arrays para forzar la actualización.
       const newLabels = waste.meses.map(m => m.mes);
       const newDatasets = [
         { ...this.wasteChartData.datasets[0], data: waste.meses.map(m => m.compradoKg) },
@@ -300,7 +297,6 @@ export class PrediccionComponent implements OnInit, OnDestroy {
         { ...this.wasteChartData.datasets[2], data: waste.meses.map(m => m.porcentajeDesperdicio) }
       ];
 
-      // 3. Asignar los nuevos objetos al objeto de datos del gráfico.
       this.wasteChartData = {
         ...this.wasteChartData,
         labels: newLabels,
@@ -311,7 +307,6 @@ export class PrediccionComponent implements OnInit, OnDestroy {
       this.wasteComparisonControl.setValue(lastKey, { emitEvent: false });
       this.selectedWasteMonthData = waste.meses.find(m => m.key === lastKey) || {};
 
-      // 4. Forzar la detección de cambios para toda la vista.
       this.cdr.markForCheck();
     });
   }

@@ -7,7 +7,7 @@ import {
   FormGroup,
   FormArray,
   Validators,
-  ValidatorFn, AbstractControl, ValidationErrors
+  ValidatorFn, AbstractControl, ValidationErrors, AsyncValidatorFn
 } from '@angular/forms';
 import {Venta} from "../../entities/venta.interface";
 import {Plato} from "../../../platos/entities/plato.interface";
@@ -16,6 +16,8 @@ import {VentasService} from "../../services/ventas.service";
 import {ComprasService} from "../../services/compras.service";
 import {PlatosService} from "../../../platos/services/platos.service";
 import {AuthService} from "../../../auth/services/auth.service";
+import {switchMap} from "rxjs/operators";
+import {Observable, of} from "rxjs";
 
 
 
@@ -30,6 +32,15 @@ export function insumoEnListaValidator(listaValida: string[]): ValidatorFn {
     const esValido = listaValida.includes(valorActual);
 
     return esValido ? null : { insumoNoEnLista: true };
+  };
+}
+
+export function minLengthArray(min: number): ValidatorFn {
+  return (control: AbstractControl): ValidationErrors | null => {
+    if (control instanceof FormArray && control.length < min) {
+      return { minLengthArray: true };
+    }
+    return null;
   };
 }
 
@@ -49,7 +60,8 @@ export class CompraVentaComponent implements OnInit {
   platosDisponibles: Plato[] = [];
   mostrarFormularioVenta: boolean = false;
   editandoVenta: boolean = false;
-  ventaActual: Partial<Venta> = {};
+
+  idVentaEditando: string | null = null;
 
   // Variables para Compras
   nombresInsumosDisponibles: string[] = [];
@@ -73,19 +85,25 @@ export class CompraVentaComponent implements OnInit {
     { valor: 'manual', texto: 'Especificar cantidad' }
   ];
 
+
+
   compraForm!: FormGroup;
 
-  // Mensajes y estados
   mensajeVentas: string = '';
   mensajeCompras: string = '';
   cargandoVentas: boolean = false;
   cargandoCompras: boolean = false;
+  mensajeFormularioCompra: string = '';
+
+  ventaForm!: FormGroup;
 
   constructor(
       private ventasService: VentasService,
       private comprasService: ComprasService,
       private platosService: PlatosService,
       private authService: AuthService,
+
+
       private fb: FormBuilder
 
 
@@ -95,6 +113,10 @@ export class CompraVentaComponent implements OnInit {
     this.fechaSeleccionadaVentas = this.formatearFechaInput(hoy);
     this.mesSeleccionado = hoy.getMonth() + 1;
     this.anioSeleccionado = hoy.getFullYear();
+    this.ventaForm = this.fb.group({
+      platoId: [null, Validators.required],
+      cantidad: [null, [Validators.required, Validators.min(1)]]
+    });
 
     console.log('Inicialización:', {
       fechaVentas: this.fechaSeleccionadaVentas,
@@ -107,29 +129,63 @@ export class CompraVentaComponent implements OnInit {
 
   ngOnInit(): void {
     this.compraForm = this.fb.group({});
-    this.cargarPlatos();
-    this.cargarVentasDelDia();
+
+    this.cargarDatosIniciales();
     this.cargarComprasDelMes();
   }
 
   // MÉTODOS PARA VENTAS
-  cargarPlatos(): void {
-    this.platosService.getPlatos().subscribe({
-      next: (platos) => {
-        this.platos = platos;
+  cargarDatosIniciales(): void {
+    this.cargandoVentas = true; // Inicia el spinner
+    this.mensajeVentas = '';
+
+    // 1. Primero, siempre carga los platos
+    this.platosService.getPlatos().pipe(
+        switchMap(platos => {
+          // 2. Una vez que tenemos los platos, los guardamos
+          this.platos = platos;
+          const todosLosInsumos = platos.flatMap(plato => plato.insumos.map(insumo => insumo.nombre));
+          this.nombresInsumosDisponibles = [...new Set(todosLosInsumos)].sort();
+          this.actualizarValidadoresDeInsumos();
+
+          // 3. Si hay platos, ahora SÍ pedimos las ventas del día.
+          //    Si no hay platos, devolvemos un array vacío de ventas para evitar una llamada innecesaria.
+          if (platos.length > 0) {
+            return this.ventasService.getVentasByFecha(this.fechaSeleccionadaVentas);
+          } else {
+            return of([]); // 'of' crea un Observable que emite un valor y se completa.
+          }
+        })
+    ).subscribe({
+      next: (ventas) => {
+        // 4. Este bloque se ejecuta DESPUÉS de tener los platos y las ventas
+        this.ventasDelDia = ventas.map(venta => {
+          // AHORA, this.platos SÍ tiene datos, por lo que la búsqueda funcionará.
+          const plato = this.platos.find(p => p.id === venta.platoId);
+          return { ...venta, plato: plato?.nombre || 'Plato no encontrado' };
+        });
+
         this.actualizarPlatosDisponibles();
-        const todosLosInsumos = platos.flatMap(plato => plato.insumos.map(insumo => insumo.nombre));
-        this.nombresInsumosDisponibles = [...new Set(todosLosInsumos)].sort();
+        if (this.ventasDelDia.length === 0) {
+          this.mensajeVentas = this.platos.length === 0
+              ? 'No hay platos registrados. Añade uno para poder registrar ventas.'
+              : 'No se han registrado ventas aún para esta fecha';
+        }
 
-        this.actualizarValidadoresDeInsumos();
+        this.cargandoVentas = false; // Detiene el spinner
       },
-
       error: (error) => {
-        console.error('Error al cargar platos:', error);
-        this.mensajeVentas = 'Error al cargar los platos disponibles';
+        console.error('Error al cargar datos iniciales:', error);
+        this.mensajeVentas = 'Error al cargar los datos de ventas';
+        this.cargandoVentas = false;
       }
     });
   }
+
+
+
+
+
 
   onFechaVentasChange(): void {
     this.cargarVentasDelDia();
@@ -142,13 +198,13 @@ export class CompraVentaComponent implements OnInit {
     this.cargandoVentas = true;
     this.ventasService.getVentasByFecha(this.fechaSeleccionadaVentas).subscribe({
       next: (ventas) => {
+        // La lógica de mapeo ahora está aquí
         this.ventasDelDia = ventas.map(venta => {
           const plato = this.platos.find(p => p.id === venta.platoId);
           return { ...venta, plato: plato?.nombre || 'Plato no encontrado' };
         });
         this.actualizarPlatosDisponibles();
-        this.mensajeVentas = this.ventasDelDia.length === 0 ?
-            'No se han registrado ventas aún para esta fecha' : '';
+        this.mensajeVentas = this.ventasDelDia.length === 0 ? 'No se han registrado ventas aún para esta fecha' : '';
         this.cargandoVentas = false;
       },
       error: (error) => {
@@ -168,49 +224,61 @@ export class CompraVentaComponent implements OnInit {
 
   abrirFormularioVenta(): void {
     if (this.platos.length === 0) {
-      this.mensajeVentas = 'No hay platos registrados aún';
+      this.mensajeVentas = 'No hay platos registrados aún.';
       return;
     }
+
     this.mostrarFormularioVenta = true;
     this.editandoVenta = false;
-    this.ventaActual = {
-      fecha: this.fechaSeleccionadaVentas,
-      platoId: undefined,
+    this.idVentaEditando = null;
+
+
+    this.ventaForm.reset({
+      platoId: null,
       cantidad: 1
-    };
+    });
   }
 
   editarVenta(venta: Venta): void {
     this.mostrarFormularioVenta = true;
     this.editandoVenta = true;
-    this.ventaActual = { ...venta };
+    this.idVentaEditando = venta.id;
+
+
+    this.ventaForm.patchValue({
+      platoId: venta.platoId,
+      cantidad: venta.cantidad
+    });
   }
 
   cerrarFormularioVenta(): void {
     this.mostrarFormularioVenta = false;
-    this.editandoVenta = false;
-    this.ventaActual = {};
   }
 
   guardarVenta(): void {
-    if (!this.validarVenta()) return;
+    // 1. Marcar todos los campos para mostrar errores
+    this.ventaForm.markAllAsTouched();
 
-    const usuarioId = this.authService.getCurrentUserId();
-    if (!usuarioId) {
-      this.mensajeVentas = 'No se pudo determinar el usuario actual';
+    // 2. Si el formulario es inválido, no hacer nada más. Los errores se muestran en el HTML.
+    if (this.ventaForm.invalid) {
       return;
     }
 
-    const ventaData: Venta = {
-      id: this.ventaActual.id ?? crypto.randomUUID(),
-      usuarioId,
+    const formValue = this.ventaForm.value;
+    const ventaPayload = {
       fecha: this.fechaSeleccionadaVentas,
-      platoId: this.ventaActual.platoId!,
-      cantidad: this.ventaActual.cantidad!
+      platoId: formValue.platoId,
+      cantidad: formValue.cantidad
     };
 
-    if (this.editandoVenta) {
-      this.ventasService.updateVenta(ventaData).subscribe({
+    if (this.editandoVenta && this.idVentaEditando) {
+      // ACTUALIZAR VENTA
+      const ventaAActualizar: Venta = {
+        id: this.idVentaEditando,
+        usuarioId: '', // El backend lo ignora
+        ...ventaPayload
+      };
+      this.ventasService.updateVenta(ventaAActualizar).subscribe({
         next: () => {
           this.cargarVentasDelDia();
           this.cerrarFormularioVenta();
@@ -221,8 +289,9 @@ export class CompraVentaComponent implements OnInit {
           this.mensajeVentas = 'Error al actualizar la venta';
         }
       });
+
     } else {
-      this.ventasService.addVenta(ventaData).subscribe({
+      this.ventasService.addVenta(ventaPayload).subscribe({
         next: () => {
           this.cargarVentasDelDia();
           this.cerrarFormularioVenta();
@@ -236,17 +305,7 @@ export class CompraVentaComponent implements OnInit {
     }
   }
 
-  validarVenta(): boolean {
-    if (!this.ventaActual.platoId) {
-      this.mensajeVentas = 'Debe seleccionar un plato';
-      return false;
-    }
-    if (!this.ventaActual.cantidad || this.ventaActual.cantidad <= 0) {
-      this.mensajeVentas = 'La cantidad debe ser mayor a 0';
-      return false;
-    }
-    return true;
-  }
+
 
   eliminarVenta(venta: Venta): void {
     if (confirm(`¿Está seguro de eliminar la venta de ${venta.plato}?`)) {
@@ -292,60 +351,21 @@ export class CompraVentaComponent implements OnInit {
 
 
   cargarComprasDelMes(): void {
-    console.log('=== INICIANDO CARGA COMPRAS ===');
-    console.log('Buscando compras para:', this.obtenerNombreMes(this.mesSeleccionado), this.anioSeleccionado);
-    console.log('Mes seleccionado (número):', this.mesSeleccionado, 'tipo:', typeof this.mesSeleccionado);
-    console.log('Año seleccionado (número):', this.anioSeleccionado, 'tipo:', typeof this.anioSeleccionado);
-
     this.cargandoCompras = true;
     this.mensajeCompras = '';
 
-    this.comprasService.getCompras().subscribe({
-      next: (todasLasCompras) => {
-        console.log('=== DATOS RECIBIDOS ===');
-        console.log('Total compras en BD:', todasLasCompras.length);
+    this.comprasService.getComprasByMonth(this.anioSeleccionado, this.mesSeleccionado).subscribe({
+      next: (comprasDelMes) => {
+        console.log('=== DATOS RECIBIDOS DEL BACKEND ===');
+        console.log('Total compras filtradas por el backend:', comprasDelMes.length);
 
-        this.comprasDelMes = todasLasCompras.filter(compra => {
-          console.log(`\n--- Procesando compra ID: ${compra.id} ---`);
-          console.log('Fecha original:', compra.fecha);
+        this.comprasDelMes = comprasDelMes.sort((a, b) => b.fecha.localeCompare(a.fecha));
 
-          const fechaPartes = compra.fecha.split('-');
-          const anioCompra = parseInt(fechaPartes[0]);
-          const mesCompra = parseInt(fechaPartes[1]);
-
-          console.log('Fecha parseada:', {
-            mesCompra,
-            anioCompra,
-            mesSeleccionado: this.mesSeleccionado,
-            anioSeleccionado: this.anioSeleccionado
-          });
-
-          const coincideMes = mesCompra === this.mesSeleccionado;
-          const coincideAnio = anioCompra === this.anioSeleccionado;
-          const coincide = coincideMes && coincideAnio;
-
-          console.log('Resultado comparación:', {
-            coincideMes,
-            coincideAnio,
-            coincide
-          });
-
-          return coincide;
-        });
-
-        console.log('=== RESULTADOS FINALES ===');
-        console.log('Compras filtradas:', this.comprasDelMes.length);
-        console.log('IDs de compras filtradas:', this.comprasDelMes.map(c => c.id));
-
-        this.comprasDelMes.sort((a, b) => {
-          return b.fecha.localeCompare(a.fecha);
-        });
-
-        this.mensajeCompras = this.comprasDelMes.length === 0 ?
-            `No hay compras registradas para ${this.obtenerNombreMes(this.mesSeleccionado)} ${this.anioSeleccionado}` : '';
+        if (this.comprasDelMes.length === 0) {
+          this.mensajeCompras = `No hay compras registradas para ${this.obtenerNombreMes(this.mesSeleccionado)} ${this.anioSeleccionado}`;
+        }
 
         this.cargandoCompras = false;
-        console.log('=== CARGA COMPRAS COMPLETADA ===\n');
       },
       error: (error) => {
         console.error('Error al cargar compras:', error);
@@ -418,13 +438,19 @@ export class CompraVentaComponent implements OnInit {
     if (fechaDefecto.getMonth() + 1 !== this.mesSeleccionado) {
       fechaDefecto.setDate(1);
     }
-
     const fechaFormateada = this.formatearFechaInput(fechaDefecto);
 
     const form = this.fb.group({
       id: [compra?.id || null],
-      fecha: [compra?.fecha || fechaFormateada, Validators.required],
-      insumos: this.fb.array([]) // Empezamos con el array vacío
+      fecha: [
+        compra?.fecha || fechaFormateada,
+        [Validators.required], // Validadores síncronos
+        [this.fechaDuplicadaValidator()] // Validadores asíncronos
+      ],
+      insumos: this.fb.array(
+          [], // El array se llenará a continuación
+          [minLengthArray(1)] // Validador a nivel de FormArray
+      )
     });
 
     const insumosFormArray = form.get('insumos') as FormArray;
@@ -437,10 +463,7 @@ export class CompraVentaComponent implements OnInit {
           cantidadMostrada = insumo.cantidad / insumo.pesoAprox;
         }
 
-        const insumoFormGroup = this.createInsumoCompraForm({
-          ...insumo,
-          cantidad: cantidadMostrada
-        });
+        const insumoFormGroup = this.createInsumoCompraForm(insumo);
         insumosFormArray.push(insumoFormGroup);
       });
     } else {
@@ -462,7 +485,7 @@ export class CompraVentaComponent implements OnInit {
         ]
       ],
       cantidad: [insumo?.cantidad || '', [Validators.required, Validators.min(0.001)]],
-      unidad: [insumo?.unidad || 'kg', Validators.required],
+      unidad: [insumo ? insumo.unidad.toLowerCase() : 'kg', [Validators.required]],
       costoTotal: [insumo?.costoTotal || '', [Validators.required, Validators.min(0.01)]],
       pesoAprox: [pesoAproxEnGramos, []]
     });
@@ -472,6 +495,7 @@ export class CompraVentaComponent implements OnInit {
     this.mostrarFormularioCompra = true;
     this.editandoCompra = false;
     this.compraForm = this.createCompraForm();
+    this.mensajeFormularioCompra = '';
   }
 
   editarCompra(compra: Compra): void {
@@ -487,90 +511,83 @@ export class CompraVentaComponent implements OnInit {
   }
 
   guardarCompra(): void {
-    if (this.compraForm.invalid) {
-      this.mensajeCompras = 'Por favor, complete todos los campos requeridos.';
-      return;
-    }
+    this.compraForm.markAllAsTouched();
 
-    const usuarioId = this.authService.getCurrentUserId();
-    if (!usuarioId) {
-      this.mensajeCompras = 'No se pudo determinar el usuario actual';
+    if (this.compraForm.invalid) {
+      console.error('Formulario inválido. Errores:', this.compraForm.errors);
       return;
     }
 
     const formValue = this.compraForm.value;
 
-    const compraData: Compra = {
-      id: formValue.id || crypto.randomUUID(),
-      usuarioId,
-      fecha: formValue.fecha,
-      insumos: formValue.insumos.map((insumo: any) => {
-        // La cantidad base es la que el usuario ingresa
-        const cantidadOriginal = Number(insumo.cantidad);
-        const unidad = insumo.unidad;
 
-        let cantidadEnKg: number;
-        const pesoAproxEnKg = insumo.pesoAprox ? Number(insumo.pesoAprox) / 1000 : 0;
+    const insumosProcesados = formValue.insumos
+        .map((insumo: any) => {
 
-        switch (unidad) {
-          case 'g':
-            cantidadEnKg = cantidadOriginal / 1000;
-            break;
-          case 'unid':
-            cantidadEnKg = cantidadOriginal * pesoAproxEnKg;
-            break;
-          case 'kg':
-          default:
-            cantidadEnKg = cantidadOriginal;
-            break;
-        }
+          const cantidadOriginal = Number(insumo.cantidad);
+          const unidad = insumo.unidad;
+          const pesoAproxEnKg = insumo.pesoAprox ? Number(insumo.pesoAprox) / 1000 : 0;
+          let cantidadEnKg: number;
 
-        const insumoFinal = {
-          nombre: insumo.nombre,
-          cantidad: cantidadEnKg,
-          unidad: unidad,
-          costoTotal: Number(insumo.costoTotal)
-        };
+          switch (unidad) {
+            case 'g':
+              cantidadEnKg = cantidadOriginal / 1000;
+              break;
+            case 'unid':
+              cantidadEnKg = cantidadOriginal * pesoAproxEnKg;
+              break;
+            default:
+              cantidadEnKg = cantidadOriginal;
+              break;
+          }
 
-        if (unidad === 'unid') {
-          (insumoFinal as any).pesoAprox = pesoAproxEnKg;
-        }
+          const insumoFinal: any = {
+            nombre: insumo.nombre,
+            cantidad: cantidadEnKg,
+            unidad: unidad,
+            costoTotal: Number(insumo.costoTotal)
+          };
 
-        return insumoFinal;
-      }).filter((insumo: any) => insumo.nombre.trim() !== '')
-    };
+          if (unidad === 'unid') {
+            insumoFinal.pesoAprox = pesoAproxEnKg;
+          }
 
-    if (compraData.insumos.length === 0) {
-      this.mensajeCompras = 'Debe agregar al menos un insumo válido.';
+          return insumoFinal;
+        })
+        .filter((insumo: any) => insumo.nombre && insumo.nombre.trim() !== '');
+
+
+    if (insumosProcesados.length === 0) {
+      this.insumosFormArray.setErrors({ required: true });
       return;
     }
 
-    const request$ = this.editandoCompra
-        ? this.comprasService.updateCompra(compraData)
-        : this.comprasService.addCompra(compraData);
+    const compraPayload: Omit<Compra, 'id' | 'usuarioId'> = {
+      fecha: formValue.fecha,
+      insumos: insumosProcesados,
+    };
 
 
-
-    request$.subscribe({
-      next: () => {
-        const fechaCompra = new Date(formValue.fecha + 'T00:00:00');
-        this.mesSeleccionado = fechaCompra.getMonth() + 1;
-        this.anioSeleccionado = fechaCompra.getFullYear();
-
-        this.cargarComprasDelMes();
-        this.cerrarFormularioCompra();
-        this.mensajeCompras = this.editandoCompra
-            ? 'Compra actualizada correctamente'
-            : 'Compra registrada correctamente';
-      },
-      error: (error) => {
-        console.error('Error al guardar/actualizar compra:', error);
-        this.mensajeCompras = this.editandoCompra
-            ? 'Error al actualizar la compra'
-            : 'Error al registrar la compra';
-      }
-    });
+    if (this.editandoCompra) {
+      const compraAActualizar: Compra = {
+        id: formValue.id,
+        usuarioId: '',
+        ...compraPayload,
+      };
+      this.comprasService.updateCompra(compraAActualizar).subscribe({
+        next: () => this.handleSuccess('Compra actualizada correctamente', formValue.fecha),
+        error: (err) => this.handleError(err, true)
+      });
+    } else {
+      this.comprasService.addCompra(compraPayload).subscribe({
+        next: () => this.handleSuccess('Compra registrada correctamente', formValue.fecha),
+        error: (err) => this.handleError(err, false)
+      });
+    }
   }
+
+
+
 
 
 
@@ -603,6 +620,24 @@ export class CompraVentaComponent implements OnInit {
         }
       });
     }
+  }
+
+  fechaDuplicadaValidator(): AsyncValidatorFn {
+    return (control: AbstractControl): Observable<ValidationErrors | null> => {
+      if (this.editandoCompra) {
+        return of(null);
+      }
+
+      const fechaSeleccionada = control.value;
+      const existe = this.comprasDelMes.some(compra => compra.fecha === fechaSeleccionada);
+
+      if (existe) {
+
+        return of({ fechaDuplicada: true });
+      }
+
+      return of(null);
+    };
   }
 
   // Métodos auxiliares
@@ -726,7 +761,7 @@ export class CompraVentaComponent implements OnInit {
     console.log('- Año seleccionado:', this.anioSeleccionado, '(tipo:', typeof this.anioSeleccionado, ')');
     console.log('- Total compras cargadas:', this.comprasDelMes.length);
 
-    this.comprasService.getCompras().subscribe(compras => {
+    this.comprasService.getComprasByMonth(this.anioSeleccionado, this.mesSeleccionado).subscribe(compras => {
       console.log('Datos directos del servicio:');
       console.log('- Total compras en BD:', compras.length);
       console.log('- Fechas disponibles:', compras.map(c => c.fecha).sort());
@@ -741,5 +776,24 @@ export class CompraVentaComponent implements OnInit {
         });
       }
     });
+  }
+
+  private handleSuccess(mensaje: string, fechaCompra: string): void {
+    const fecha = new Date(fechaCompra + 'T12:00:00Z');
+    this.mesSeleccionado = fecha.getUTCMonth() + 1;
+    this.anioSeleccionado = fecha.getUTCFullYear();
+
+    this.cargarComprasDelMes();
+    this.cerrarFormularioCompra();
+    this.mensajeCompras = mensaje;
+
+    setTimeout(() => this.mensajeCompras = '', 4000);
+  }
+
+  private handleError(error: any, esEdicion: boolean): void {
+    console.error('Error al guardar/actualizar compra:', error);
+    this.mensajeCompras = esEdicion
+        ? 'Error al actualizar la compra.'
+        : 'Error al registrar la compra.';
   }
 }
